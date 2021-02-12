@@ -18,6 +18,7 @@
  */ 
 package com.datamelt.kettle.jare;
 
+import org.pentaho.di.code.database.Database;
 import org.pentaho.di.core.row.RowMetaInterface;
 import org.pentaho.di.trans.step.BaseStepData;
 import org.pentaho.di.trans.step.StepDataInterface;
@@ -31,8 +32,12 @@ public class JarePluginData extends BaseStepData implements StepDataInterface
 	public RowMetaInterface outputRowMeta;
 	public RowMetaInterface outputRowMetaRuleResults;
 
+	public Database db;
+
     public JarePluginData()
 	{
 		super();
+
+		db = null;
 	}
 }

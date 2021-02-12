@@ -26,6 +26,7 @@ import org.pentaho.di.core.CheckResult;
 import org.pentaho.di.core.CheckResultInterface;
 import org.pentaho.di.core.Counter;
 import org.pentaho.di.core.annotations.Step;
+import org.pentaho.di.core.database.Database;
 import org.pentaho.di.core.database.DatabaseMeta;
 import org.pentaho.di.core.exception.KettleDatabaseException;
 import org.pentaho.di.core.exception.KettleException;
@@ -60,20 +61,35 @@ documentationUrl = "https://github.com/uwegeercken/jareplugin/wiki/Rule-Engine-P
 
 @InjectionSupported( localizationPrefix = "JarePluginDialog.Injection.")
 public class JarePluginMeta extends BaseStepMeta implements StepMetaInterface
-{
+{	
+	private String stepMain;
+	private String stepRuleResults;
+
+	private List<? extends SharedObjectInterface> databases;
+	private DatabaseMeta databaseMeta;
+
 	@Injection( name = "RULES_FILE_NAME" )
 	private String ruleFilename;
 	
-	private String stepMain;
-	private String stepRuleResults;
-	
 	@Injection( name = "RULE_RESULTS_STEP_OUTPUT_TYPE" )
 	private int outputType;
+
+	@Injection( name = "USE_DB" )
+	private boolean dbUsed;
+
+	@Injection( name = "PROJECT_NAME" )
+	private String projectName;
 	
 	public JarePluginMeta() 
 	{
 		super(); // allocate BaseStepInfo
 		
+	}
+
+	@Injection( name = "CONNECTIONNAME" )
+	public void setConnection( String connectionName ) 
+	{
+		databaseMeta = DatabaseMeta.findDatabase( this.databases, connectionName );
 	}
 
 	/**
@@ -139,6 +155,48 @@ public class JarePluginMeta extends BaseStepMeta implements StepMetaInterface
 	{
 		this.outputType = outputType;
 	}
+
+	/**
+	 * @return Returns the database.
+	 */
+	public DatabaseMeta getDatabaseMeta() {
+		return databaseMeta;
+	}
+
+	/**
+	 * @param database The database to set.
+	 */
+	public void setDatabaseMeta( DatabaseMeta database ) {
+		this.databaseMeta = database;
+	}
+
+	/**
+	 * @return Returns if a database is used to get the rules
+	 */
+	public boolean isDBUsed() {
+		return dbUsed;
+	}
+
+	/**
+	 * @param dbused the boolean value to set
+	 */
+	public void setDBUsed( boolean dbused ) {
+		this.dbUsed = dbused;
+	} 
+
+	/**
+	 * @return the project name
+	 */
+	public String getProjectName() {
+		return projectName;
+	}
+
+	/**
+	 * @param projectname the project name to be parsed
+	 */
+	public void setProjectName( String projectname ) {
+		this.projectName = projectname;
+	}
 	
 	public String getXML() throws KettleException
 	{
@@ -147,7 +205,12 @@ public class JarePluginMeta extends BaseStepMeta implements StepMetaInterface
         retval.append("    ").append(XMLHandler.addTagValue("rule_file_name", ruleFilename));
         retval.append("    ").append(XMLHandler.addTagValue("rule_step_main", stepMain));
         retval.append("    ").append(XMLHandler.addTagValue("rule_step_rule_results", stepRuleResults));
-        retval.append("    ").append(XMLHandler.addTagValue("output_type", outputType));
+		retval.append("    ").append(XMLHandler.addTagValue("output_type", outputType));
+		retval.append("    ").append(XMLHandler.addTagValue("dbUsed", dbUsed));
+		if ( isDBUsed() ) {
+			retval.append("    ").append(XMLHandler.addTagValue("connection", databaseMeta == null ? "" : databaseMeta.getName() ));
+			retval.append("    ").append(XMLHandler.addTagValue("project_name", projectName));
+		}
         return retval.toString();
 	}
 
@@ -157,6 +220,12 @@ public class JarePluginMeta extends BaseStepMeta implements StepMetaInterface
 		JarePluginMeta retval = (JarePluginMeta) super.clone();
 		retval.ruleFilename= ruleFilename;
 		retval.stepMain = stepMain;
+		retval.dbUsed = dbUsed;
+		if ( isDBUsed() ) {
+			retval.databaseMeta = databaseMeta;
+			retval.projectName = projectName;
+			retval.databases = databases;
+		}
 		return retval;
 	}
 
@@ -169,7 +238,11 @@ public class JarePluginMeta extends BaseStepMeta implements StepMetaInterface
 			stepMain =  XMLHandler.getTagValue(stepnode, "rule_step_main");
 			stepRuleResults =  XMLHandler.getTagValue(stepnode, "rule_step_rule_results");
 			outputType =  Integer.parseInt(XMLHandler.getTagValue(stepnode, "output_type"));
-
+			dbUsed =  "Y".equals(XMLHandler.getTagValue(stepnode, "dbUsed"));
+			if ( isDBUsed() ) {
+				databaseMeta = DatabaseMeta.findDatabase( databases, XMLHandler.getTagValue(stepnode, "connection"));
+				projectName = XMLHandler.getTagValue(stepnode, "project_name");
+			}
 		}
 		catch(Exception e)
 		{
@@ -183,6 +256,8 @@ public class JarePluginMeta extends BaseStepMeta implements StepMetaInterface
 		stepMain = "";
 		stepRuleResults = Messages.getString("JarePluginDialog.Step.RuleResults.Type");
 		outputType=0;
+		databaseMeta = null;
+		projectName = "";
 	}
 	
 	public void getFields(RowMetaInterface rowMeta, String origin, RowMetaInterface[] info, StepMeta nextStep, VariableSpace space) throws KettleStepException
@@ -278,7 +353,11 @@ public class JarePluginMeta extends BaseStepMeta implements StepMetaInterface
 			stepMain = rep.getStepAttributeString(id_step, "rule_step_main");
 			stepRuleResults = rep.getStepAttributeString(id_step, "rule_step_rule_results");
 			outputType = Integer.parseInt(rep.getStepAttributeString(id_step, "output_type"));
-			
+			dbUsed = rep.getStepAttributeBoolean( id_step, "dbUsed");
+			if ( isDBUsed() ) {
+				databaseMeta = rep.loadDatabaseMetaFromStepAttribute( id_step, "id_connection", databases );
+				projectName = rep.getStepAttributeString( id_step, "project_name" );
+			}
 		}
 		catch(KettleDatabaseException dbe)
 		{
@@ -298,6 +377,14 @@ public class JarePluginMeta extends BaseStepMeta implements StepMetaInterface
 			rep.saveStepAttribute(id_transformation, id_step, "rule_step_main", stepMain);
 			rep.saveStepAttribute(id_transformation, id_step, "rule_step_rule_results", stepRuleResults);
 			rep.saveStepAttribute(id_transformation, id_step, "output_type", outputType);
+			rep.saveStepAttribute(id_transformation, id_step, "dbUsed", dbUsed);
+			if ( isDBUsed() ) {
+				rep.saveDatabaseMetaStepAttribute( id_transformation, id_step, "id_connection", databaseMeta );
+				rep.saveStepAttribute(id_transformation, id_step, "project_name", projectName);
+				if (databaseMeta != null) {
+					rep.insertStepDatabase( id_transformation, id_step, databaseMeta.getObjectId() );
+				}
+			}
 		}
 		catch(KettleDatabaseException dbe)
 		{
@@ -308,6 +395,7 @@ public class JarePluginMeta extends BaseStepMeta implements StepMetaInterface
 	public void check(List<CheckResultInterface> remarks, TransMeta transmeta, StepMeta stepMeta, RowMetaInterface prev, String input[], String output[], RowMetaInterface info)
 	{
 		CheckResult cr;
+		//TODO Add some database checks
 		if (prev==null || prev.size()==0)
 		{
 			cr = new CheckResult(CheckResult.TYPE_RESULT_WARNING, "Not receiving any fields from previous steps!", stepMeta);
@@ -371,6 +459,14 @@ public class JarePluginMeta extends BaseStepMeta implements StepMetaInterface
 	public boolean excludeFromCopyDistributeVerification()
 	{
 		return true;
+	}
+
+	public DatabaseMeta[] getUsedDatabaseConnections() {
+		if (databaseMeta != null ) {
+			return new DatabaseMeta[] { databaseMeta };
+		} else {
+			return super.getUsedDatabaseConnections();
+		}
 	}
 	
 }

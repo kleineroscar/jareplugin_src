@@ -29,6 +29,7 @@ import java.util.Date;
 import java.util.zip.ZipFile;
 
 import org.pentaho.di.core.RowSet;
+import org.pentaho.di.core.database.Database;
 import org.pentaho.di.core.exception.KettleException;
 import org.pentaho.di.core.row.RowDataUtil;
 import org.pentaho.di.core.row.RowMetaInterface;
@@ -73,8 +74,8 @@ import com.datamelt.util.RowFieldCollection;
  * 
  * @author uwe geercken - uwe.geercken@web.de
  * 
- * version 0.5
- * last update: 2020-08-27 
+ * version 0.6
+ * last update: 2021-01-19 
  */
 
 public class JarePlugin extends BaseStep implements StepInterface
@@ -110,6 +111,7 @@ public class JarePlugin extends BaseStep implements StepInterface
 	private int inputSize=0;
 	private String environmentFilename;
 	private String realFilename;
+	private String projectName;
 	
 	public JarePlugin(StepMeta s, StepDataInterface stepDataInterface, int c, TransMeta t, Trans dis)
 	{
@@ -184,56 +186,73 @@ public class JarePlugin extends BaseStep implements StepInterface
             
             try
             {
-            	log.logDebug("trying to use file for the ruleengine: " + realFilename);
-            	
-            	File f = new File(realFilename); 
-            	if(!f.exists())
-            	{
-            		throw new FileNotFoundException("the specified rule file was not found: " + realFilename);
-            	}
-            	// we can use a zip file containing all rules
-            	if(f.isFile() && realFilename.endsWith(".zip"))
-            	{
-            		log.logDebug("found zip file to read xml rule files: " + realFilename);
-            		ZipFile zip = new ZipFile(realFilename);
-            		ruleEngine = new BusinessRulesEngine(zip);
-            	}
-            	// we can also use a directory and read all files from there
-            	else if(f.isDirectory())
-            	{
-            		// use a filter - we only want to read xml files
-            		log.logDebug("found folder to read xml rules files: " + realFilename);
-            		FilenameFilter fileNameFilter = new FilenameFilter()
+				if (meta.isDBUsed()) {
+					log.logDebug("trying to use a database for the ruleengine: " + projectName);
+
+					projectName = environmentSubstitute(meta.getProjectName());
+
+					ruleEngine = new BusinessRulesEngine(data.db.getConnection(), projectName);
+					log.logBasic("initialized business rule engine version: " + BusinessRulesEngine.getVersion() + " with a db connection\n" + "A total of " + String.valueOf(ruleEngine.getNumberOfGroups()) + " groupd have been parsed.");
+					
+					if (ruleEngine.getNumberOfGroups() == 0) {
+						log.logBasic("Attention: project in database contains no rulegroups or no ruleroups that are active based on the valid from/until date")
+					}
+
+					data.db.disconnect();
+					log.logDebug("Disconnected from database");
+
+				} else { 
+            		log.logDebug("trying to use file for the ruleengine: " + realFilename);
+					
+            		File f = new File(realFilename); 
+            		if(!f.exists())
             		{
-                        @Override
-                        public boolean accept(File dir, String name) {
-                           if(name.lastIndexOf('.')>0)
-                           {
-                              // get last index for '.' char
-                              int lastIndex = name.lastIndexOf('.');
-                              
-                              // get extension
-                              String str = name.substring(lastIndex);
-                              
-                              // match path name extension
-                              if(str.equals(".xml"))
-                              {
-                                 return true;
-                              }
-                           }
-                           return false;
-                        }
-                     };
-                     // get list of files for the given filter
-            		File[] listOfFiles = f.listFiles(fileNameFilter);
-            		// initialize rule engine with list of files
-            		ruleEngine = new BusinessRulesEngine(listOfFiles);
-            	}
-            	else if(f.isFile())
-            	{
-            		log.logDebug("found single xml rules file: " + realFilename);
-            		ruleEngine = new BusinessRulesEngine(realFilename);
-            	}
+            			throw new FileNotFoundException("the specified rule file was not found: " + realFilename);
+            		}
+            		// we can use a zip file containing all rules
+            		if(f.isFile() && realFilename.endsWith(".zip"))
+            		{
+            			log.logDebug("found zip file to read xml rule files: " + realFilename);
+            			ZipFile zip = new ZipFile(realFilename);
+            			ruleEngine = new BusinessRulesEngine(zip);
+            		}
+            		// we can also use a directory and read all files from there
+            		else if(f.isDirectory())
+            		{
+            			// use a filter - we only want to read xml files
+            			log.logDebug("found folder to read xml rules files: " + realFilename);
+            			FilenameFilter fileNameFilter = new FilenameFilter()
+            			{
+                	        @Override
+                	        public boolean accept(File dir, String name) {
+                	           if(name.lastIndexOf('.')>0)
+                	           {
+                	              // get last index for '.' char
+                	              int lastIndex = name.lastIndexOf('.');
+							
+                	              // get extension
+                	              String str = name.substring(lastIndex);
+							
+                	              // match path name extension
+                	              if(str.equals(".xml"))
+                	              {
+                	                 return true;
+                	              }
+                	           }
+                	           return false;
+                	        }
+                	     };
+                	     // get list of files for the given filter
+            			File[] listOfFiles = f.listFiles(fileNameFilter);
+            			// initialize rule engine with list of files
+            			ruleEngine = new BusinessRulesEngine(listOfFiles);
+            		}
+            		else if(f.isFile())
+            		{
+            			log.logDebug("found single xml rules file: " + realFilename);
+            			ruleEngine = new BusinessRulesEngine(realFilename);
+					}
+				}
             	log.logBasic("initialized business rule engine version: " + BusinessRulesEngine.getVersion() + " using: " + realFilename);
             	if(ruleEngine.getNumberOfGroups()==0)
         		{
@@ -255,7 +274,14 @@ public class JarePlugin extends BaseStep implements StepInterface
             	setOutputDone();
             	setErrors(1);
             	return false;
-            }
+			}
+			catch(SQLException sqle) {
+				log.logError(sqle.toString());
+				setStopped(true);
+				setOutputDone();
+				setError(1);
+				return false;
+			}
             catch(Exception ex)
             {
             	log.logError("error initializing business rule engine with rule file: " + realFilename, ex.toString());
@@ -519,7 +545,41 @@ public class JarePlugin extends BaseStep implements StepInterface
 	    meta = (JarePluginMeta)smi;
 	    data = (JarePluginData)sdi;
 
-	    return super.init(smi, sdi);
+	    if (super.init(smi, sdi)) {
+			boolean passed = true;
+			if (meta.isDBUsed()) {
+				if (meta.getDatabaseMeta() == null) {
+					log.logError("Database connection is missing!"));
+					return false;
+				}
+				data.db = new Database(this, meta.getDatabaseMeta());
+				data.db.shareVariablesWith(this);
+
+				try {
+					if (getTransMeta().isUsingUniqueConnection()) {
+						synchronized (getTrans()) {
+							data.db.connection(getTrans().getTransactionId(), getPartitionID());
+						}
+					} else {
+						data.db.connection(getPartitionID());
+					}
+					if (log.isDetailed()) {
+						log.logDetailed("Connected to Database...");
+					}
+
+					return true;
+				} catch (KettleException e) {
+					log.logError("An error occured, processing will be stopped: " + e.getMessage());
+					setStopped(true);
+            		setOutputDone();
+					setErrors(1);
+					stopAll();
+				}
+			} else {
+				return true;
+			}
+		};
+		return false;
 	}
 
 	public void dispose(StepMetaInterface smi, StepDataInterface sdi)

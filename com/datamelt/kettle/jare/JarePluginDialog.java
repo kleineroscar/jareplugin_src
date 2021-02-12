@@ -49,12 +49,13 @@ public class JarePluginDialog extends BaseStepDialog implements StepDialogInterf
 {
 	private JarePluginMeta input;
 
-	private Label        wLabelRuleFile, wLabelStepname, wLabelOutputType,wLabelStepMain, wLabelStepRuleResults;
+	private Label        wLabelRuleFile, wLabelProjectName, wLabelStepname, wLabelOutputType,wLabelStepMain, wLabelStepRuleResults, wLabelUseDB;
 	private Text         wTextStepname;
 	private Combo		 wComboOutputType, wComboStepRuleResults, wComboStepMain;
-	private FormData     wFormBucket, wFormRuleFile, wFormFileName,wFormStepname, wFormOutputType, wFormStepMain, wFormStepRuleResults, fdbFilename;
-	private TextVar      wTextRuleFile;
-	private Button		 wbFilename;
+	private CCombo		 wConnection;
+	private FormData     wFormBucket, wFormProjectName, wFormRuleFile, WFormSelectSource, wFormFileName,wFormStepname, wFormOutputType, wFormStepMain, wFormStepRuleResults;
+	private TextVar      wTextRuleFile, wTextProjectName;
+	private Button		 wbFilename, wbUseDB;
 	private Group 		 wFileName;
 
 	
@@ -157,8 +158,57 @@ public class JarePluginDialog extends BaseStepDialog implements StepDialogInterf
 	    wFormBucket.right = new FormAttachment( 90, 0 );
 	    wTextRuleFile.setLayoutData( wFormBucket );
 		
-	    
-	    
+		// DB select
+		wLabelUseDB = new Label(shell, SWT.RIGHT);
+		wLabelUseDB.setText(Messages.getString("JarePluginDialog.SelectSource.Label"));
+		props.setLook( wLabelUseDB );
+		wFormSelectSource = new FormData();
+		wFormSelectSource.left = new FormAttachment( middle, 0);
+		wFormSelectSource.top = new FormAttachment( wbFilename, margin );
+		wFormSelectSource.right = new FormAttachment( middle, 10 + margin );
+		wbUseDB.setLayoutData( wFormSelectSource );
+		
+		wbUseDB.addSelectionListener( new SelectionAdapter() {
+			@Override
+			public void widgetSelected( SelectionEvent e ) {
+				Button source = (Button) e.getSource();
+
+				if ( source.getSelection() ) {
+					wbFilename.setEnabled(false);
+					wTextRuleFile.setEnabled(false);
+					wConnection.setEnabled(true);
+					wTextProjectName.setEnabled(true);
+				} else {
+					wbFilename.setEnabled(true);
+					wTextRuleFile.setEnabled(true);
+					wConnection.setEnabled(false);
+					wTextProjectName.setEnabled(false);
+				}
+			}
+		});
+
+		// Projectname field
+		wLabelProjectName = new Label(shell, SWT.RIGHT);
+		wLabelProjectName.setText(Messages.getString("JarePluginDialog.ProjectName.Label"));
+		props.setLook( wLabelProjectName );
+		wFormProjectName = new FormData();
+		wFormProjectName.left = FormAttachment(wbUseDB, margin);
+		wFormProjectName.right = FormAttachment(wbUseDB, 200 + margin);
+		wFormProjectName.top = FormAttachment(wbFilename, margin);
+		wLabelProjectName.setLayoutData(wFormProjectName);
+		wTextProjectName = new TextVar( transMeta, shell, SWT.SINGLE | SWT.LEFT | SWT.BODER );
+		props.setLook( wTextProjectName );
+		wTextProjectName.addModifyListener(lsMod);
+		wFormProjectName = new FormData();
+		wFormProjectName.left = FormAttachment(wLabelProjectName, margin);
+		wFormProjectName.top = FormAttachment(wbFilename, margin);
+		wFormProjectName.right = FormAttachment(100, -10 * margin );
+		wTextProjectName.setLayoutData(wFormProjectName);
+
+		//DB connection
+		wConnection = addConnectionLine(shell, wTextProjectName, middle, margin);
+		wConnection.addModifyListener( lsMod );
+		
 		// Main Output Step
 		wLabelStepMain=new Label(shell, SWT.RIGHT);
 		wLabelStepMain.setText(Messages.getString("JarePluginDialog.Step.Main"));
@@ -166,7 +216,7 @@ public class JarePluginDialog extends BaseStepDialog implements StepDialogInterf
         wFormStepMain=new FormData();
         wFormStepMain.left = new FormAttachment(0, 0);
         wFormStepMain.right= new FormAttachment(middle, -margin);
-        wFormStepMain.top  = new FormAttachment(wTextRuleFile, margin);
+        wFormStepMain.top  = new FormAttachment(wConnection, margin);
         wLabelStepMain.setLayoutData(wFormStepMain);
 		wComboStepMain=new Combo(shell, SWT.VERTICAL | SWT.DROP_DOWN | SWT.BORDER | SWT.READ_ONLY);
 		String outputSteps[] = transMeta.getNextStepNames(stepMeta);
@@ -182,7 +232,7 @@ public class JarePluginDialog extends BaseStepDialog implements StepDialogInterf
 		wComboStepMain.addModifyListener(lsMod);
 		wFormStepMain=new FormData();
 		wFormStepMain.left = new FormAttachment(middle, 0);
-		wFormStepMain.top  = new FormAttachment(wTextRuleFile, margin);
+		wFormStepMain.top  = new FormAttachment(wConnection, margin);
 		wFormStepMain.right= new FormAttachment(100, 0);
         wComboStepMain.setLayoutData(wFormStepMain);
 		
@@ -285,8 +335,19 @@ public class JarePluginDialog extends BaseStepDialog implements StepDialogInterf
 	// Read data from input
 	public void getData()
 	{
-		//wTextRuleFile.setText(input.getRuleFileName());
+		if ( input.isDBUsed() ) {
+			wConnection.setText( input.getDatabaseMeta().getName() );
+			wTextProjectName.setText( input.getProjectName() );
+		}
+		wbUseDB.setSelection(input.isDBUsed());
+		wConnection.setSelection(input.isDBUsed());
+		wTextProjectName.setSelection(input.isDBUsed());
 
+		wbFilename.setSelection(!input.isDBUsed());
+		wTextRuleFile.setSelection(!input.isDBUsed());
+		
+		wTextStepname.selectAll();
+		wTextStepname.setFocus();
 	}
 	
 	private void cancel()
@@ -303,7 +364,21 @@ public class JarePluginDialog extends BaseStepDialog implements StepDialogInterf
 		input.setStepMain(wComboStepMain.getText());
 		input.setStepRuleResults(wComboStepRuleResults.getText());
 		input.setOutputType(wComboOutputType.getSelectionIndex());
+		input.setDBUsed(wbUseDB.getSelection());
+		if ( input.isDBUsed() ) {
+			input.setDatabaseMeta( transMeta.findDatabase( wConnection.getText() ));
+			input.setProjectName( wTextProjectName.getText() );
+			if ( input.getDatabaseMeta() == null ) {
+				input.setDBUsed( false );
+				MessageBox mb = new MessageBox( shell, SWT.OK | SWT.ICON_ERROR );
+				mb.setMessage( Messages.getString("JarePluginDialog.SelectValidConnection" ));
+				mv.setText( Messages.getString("JarePluginDialog.DialogCaptionError" ));
+				mb.open();
+				return;
+			}
+		}
 		
+		input.setChanged(changed);
 		dispose();
 	}
 }
